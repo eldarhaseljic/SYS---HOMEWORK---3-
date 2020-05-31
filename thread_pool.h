@@ -55,6 +55,16 @@ public:
     cv_.notify_one();
   }
 
+  bool isEmpty()
+  {
+    return tasks_.empty();
+  }
+
+  std::queue<function_t> &getFunctionQueue()
+  {
+    return tasks_;
+  }
+
   // Funckija za signalizizaciju  da se queue zaustavi
   void stop()
   {
@@ -63,6 +73,18 @@ public:
       stopped_ = true;
     }
     cv_.notify_all();
+  }
+
+  bool tryToSteal(function_t &fun)
+  {
+    std::unique_lock<std::mutex> queue_lock{mtx_};
+    if (!tasks_.empty())
+    {
+      fun = std::move(tasks_.front());
+      tasks_.pop();
+      return true;
+    }
+    return false;
   }
 };
 
@@ -76,20 +98,29 @@ private:
     while (true)
     {
       function_t fun;
-      int curent_task = i;
       bool stolen_task = false;
-      
-      do
+
+      if (tasks_.at(i)->isEmpty())
       {
-        if (tasks_.at(curent_task)->blocking_pop(fun))
+        int nextThreadQueue = i + 1;
+        if (nextThreadQueue == tasks_.size())
+          nextThreadQueue = 0;
+
+        while (!tasks_.at(nextThreadQueue)->isEmpty())
         {
-          stolen_task = true;
-          break;
+          /* code */
+          if ((stolen_task = tasks_.at(i)->tryToSteal(fun)))
+          {
+            tasks_[i]->push(fun);
+            break;
+          }
+
+          ++nextThreadQueue;
+
+          if (nextThreadQueue == tasks_.size())
+            nextThreadQueue = 0;
         }
-        ++curent_task;
-        if (curent_task == thread_number_)
-          curent_task = 0;
-      } while (curent_task != i);
+      }
 
       if (!stolen_task && !(*tasks_[i]).blocking_pop(fun))
         return;
